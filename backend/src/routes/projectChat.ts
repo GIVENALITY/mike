@@ -14,6 +14,62 @@ import {
 import { getUserApiKeys } from "../lib/userSettings";
 import { checkProjectAccess } from "../lib/access";
 
+// ── Leksa RAG integration ─────────────────────────────────────────────────
+// Fetches relevant Tanzanian legal context (statutes, case law, precedents)
+// from the Leksa Django service and injects it into the system prompt.
+// Set LEKSA_RAG_URL in backend/.env to enable. Degrades gracefully if unset.
+
+interface LeksaChunk {
+    text: string;
+    source: string;
+    citation: string;
+    score: number;
+    doc_id: string;
+}
+
+interface LeksaRetrieveResponse {
+    chunks: LeksaChunk[];
+    sources: { title: string; url: string }[];
+    intent: string;
+    language: string;
+}
+
+async function fetchLegalContext(query: string): Promise<string> {
+    const ragUrl = process.env.LEKSA_RAG_URL;
+    if (!ragUrl || !query.trim()) return "";
+
+    try {
+        const topK = parseInt(process.env.LEKSA_RAG_TOP_K ?? "8", 10);
+        const res = await fetch(`${ragUrl}/rag/retrieve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, top_k: topK }),
+            signal: AbortSignal.timeout(5000),
+        });
+
+        if (!res.ok) return "";
+
+        const data: LeksaRetrieveResponse = await res.json();
+        if (!data.chunks?.length) return "";
+
+        const contextBlock = data.chunks
+            .map((c) =>
+                `[${c.source}${c.citation ? ` — ${c.citation}` : ""}]\n${c.text}`,
+            )
+            .join("\n\n");
+
+        return (
+            `\n\n## Tanzanian Legal Context\n` +
+            `_Retrieved from Leksa legal corpus (${data.intent} / ${data.language})_\n\n` +
+            contextBlock
+        );
+    } catch {
+        // RAG service unavailable — degrade gracefully
+        return "";
+    }
+}
+// ── End Leksa RAG integration ─────────────────────────────────────────────
+
 const PROJECT_SYSTEM_PROMPT_EXTRA = `PROJECT CONTEXT:
 You are operating within a project folder that contains a collection of legal documents the user has organised for a single matter. The user's questions will usually refer to one or more documents in this project — your job is to find the relevant files to work on. Use list_documents to see what is available and fetch_documents / read_document to pull in any documents you need before answering.
 
@@ -122,7 +178,8 @@ projectChatRouter.post("/", requireAuth, async (req, res) => {
     // the system prompt with the current-turn doc_id slugs so the model
     // knows which docs the user is highlighting *now*, distinct from
     // the broader project doc list.
-    let systemPromptExtra = PROJECT_SYSTEM_PROMPT_EXTRA;
+    const legalContext = await fetchLegalContext(lastUser?.content ?? "");
+    let systemPromptExtra = PROJECT_SYSTEM_PROMPT_EXTRA + legalContext;
     if (attached_documents?.length) {
         const slugByDocumentId = new Map<string, string>();
         for (const [slug, info] of Object.entries(docIndex)) {
