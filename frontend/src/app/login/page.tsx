@@ -120,10 +120,9 @@ export default function LoginPage() {
                     </form>
                 </div>
                 <p className="text-center text-xs text-gray-500 leading-relaxed px-2">
-                    Mike hosted on MikeOSS.com is currently a demo service.
-                    Please do not upload, submit, or store sensitive,
-                    confidential, privileged, client, or personally
-                    identifiable documents.
+                    Leksa is an AI-assisted legal platform. Always verify
+                    outputs with a qualified legal professional before
+                    relying on them.
                 </p>
             </div>
         </div>

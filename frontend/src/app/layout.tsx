@@ -15,10 +15,10 @@ const ebGaramond = EB_Garamond({
 });
 
 export const metadata: Metadata = {
-    metadataBase: new URL("https://app.mikeoss.com"),
-    title: "Mike - AI Legal Platform",
+    metadataBase: new URL("https://app.leksa.co.tz"),
+    title: "Leksa - AI Legal Platform",
     description:
-        "AI-powered legal document analysis and contract review platform.",
+        "AI-powered legal document drafting and review for Tanzania.",
     icons: {
         icon: [
             { url: "/icon.svg", type: "image/svg+xml" },
@@ -28,25 +28,25 @@ export const metadata: Metadata = {
     },
     openGraph: {
         type: "website",
-        url: "https://app.mikeoss.com",
-        siteName: "Mike",
-        title: "Mike - AI Legal Platform",
+        url: "https://app.leksa.co.tz",
+        siteName: "Leksa",
+        title: "Leksa - AI Legal Platform",
         description:
-            "AI-powered legal document analysis and contract review platform.",
+            "AI-powered legal document drafting and review for Tanzania.",
         images: [
             {
                 url: "/link-image.jpg",
                 width: 1200,
                 height: 651,
-                alt: "Mike",
+                alt: "Leksa",
             },
         ],
     },
     twitter: {
         card: "summary_large_image",
-        title: "Mike - AI Legal Platform",
+        title: "Leksa - AI Legal Platform",
         description:
-            "AI-powered legal document analysis and contract review platform.",
+            "AI-powered legal document drafting and review for Tanzania.",
         images: ["/link-image.jpg"],
     },
 };

@@ -19,15 +19,15 @@ type IconPalette = {
 };
 
 const DEFAULT_PALETTE: IconPalette = {
-    shadowColor: "#000000",
+    shadowColor: "#0d9488",
     shadowOpacity: 0.3,
-    fillStops: ["#0a0a0a", "#151515", "#080808", "#111111"],
-    fillOpacities: [0.9, 0.8, 0.85, 0.9],
-    specularStops: [0.5, 0.2, 0, 0],
-    borderStops: ["#ffffff", "#666666", "#ffffff"],
-    borderOpacities: [0.3, 0.1, 0.2],
-    innerStops: ["#ffffff", "#777777", "#222222", "#ffffff"],
-    innerOpacities: [0, 0.08, 0.05, 0],
+    fillStops: ["#0d9488", "#14b8a6", "#0f766e", "#2dd4bf"],
+    fillOpacities: [0.95, 0.88, 0.9, 0.94],
+    specularStops: [0.6, 0.25, 0.03, 0],
+    borderStops: ["#ccfbf1", "#5eead4", "#99f6e4"],
+    borderOpacities: [0.5, 0.2, 0.35],
+    innerStops: ["#ffffff", "#ccfbf1", "#14b8a6", "#ffffff"],
+    innerOpacities: [0, 0.14, 0.07, 0],
 };
 
 const DONE_PALETTE: IconPalette = {
