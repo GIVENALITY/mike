@@ -24,11 +24,17 @@ import {
     filterAccessibleDocumentIds,
     listAccessibleProjectIds,
 } from "../lib/access";
+import { fetchLegalContext } from "../lib/leksaRag";
 
 function formatPromptSuffix(format?: string, tags?: string[]): string {
+    const citationNote =
+        ' Every factual claim in "summary" must be followed immediately by an inline citation [[page:N||quote:verbatim excerpt ≤25 words]].';
     switch (format) {
         case "bulleted_list":
-            return ' The "summary" field in your JSON response must be a markdown bulleted list only — no prose. Format: each item on its own line, prefixed with "* " (asterisk + single space), e.g.\n* First item\n* Second item\n* Third item';
+            return (
+                ' The "summary" field in your JSON response must be a markdown bulleted list only — no prose. Format: each item on its own line, prefixed with "* " (asterisk + single space), e.g.\n* First item\n* Second item\n* Third item' +
+                citationNote
+            );
         case "number":
             return ' The "summary" field in your JSON response must be a single number only. No units or explanation.';
         case "percentage":
@@ -46,7 +52,8 @@ function formatPromptSuffix(format?: string, tags?: string[]): string {
                 ? ` The \"summary\" field in your JSON response must contain exactly one tag wrapped in double square brackets. Available tags: ${tags.map((t) => `[[${t}]]`).join(", ")}. No other text. The \"reasoning\" field MUST include an inline citation [[page:N||quote:verbatim excerpt ≤25 words]] pointing to the exact language in the document that supports the chosen tag.`
                 : "";
         default:
-            return "";
+            // text / unspecified — require citations in summary
+            return citationNote;
     }
 }
 
@@ -756,6 +763,9 @@ tabularRouter.post(
             }
         }
 
+        // Fetch Tanzanian legal context for this column's topic
+        const legalContext = await fetchLegalContext(column.prompt);
+
         const result = await queryTabularCell(
             tabular_model,
             doc.filename as string,
@@ -764,6 +774,7 @@ tabularRouter.post(
             column.format,
             column.tags,
             api_keys,
+            legalContext,
         );
 
         if (!result) {
@@ -856,6 +867,14 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
         });
     }
 
+    // Fetch Tanzanian legal context once for this review using all column prompts.
+    // Done before SSE headers so failures don't break the stream.
+    const combinedColumnQuery = columns.map((c) => c.prompt).join(". ");
+    const reviewLegalContext = await fetchLegalContext(
+        combinedColumnQuery,
+        Math.min(columns.length * 3, 20), // more chunks for multi-column reviews
+    );
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -941,6 +960,7 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                             );
                         },
                         api_keys,
+                        reviewLegalContext,
                     );
                 } catch (err) {
                     console.error(
@@ -1432,11 +1452,16 @@ async function queryTabularCell(
     format?: string,
     tags?: string[],
     apiKeys?: import("../lib/llm").UserApiKeys,
+    legalContext?: string,
 ) {
     const suffix = formatPromptSuffix(format as never, tags);
     const fullPrompt = `${columnPrompt}${suffix} If not found, state "Not Found". Leave all reasoning and explanation in the "reasoning" field only.`;
 
-    const EXTRACTION_SYSTEM = `You are a legal document analyst. Return ONLY valid JSON:
+    const legalContextBlock = legalContext
+        ? `\n\n${legalContext}\n\nWhen assigning the flag, consider whether the document's content aligns with the Tanzanian legal standards above. Flag red/yellow if non-compliant or ambiguous, green if compliant.`
+        : "";
+
+    const EXTRACTION_SYSTEM = `You are a legal document analyst specialising in Tanzanian law. Return ONLY valid JSON:
 {"summary": string, "flag": "green"|"grey"|"yellow"|"red", "reasoning": string}
 
 The "summary" and "reasoning" field values may use markdown formatting (bullets, bold, italics, etc.) — the values are still plain JSON strings (escape newlines as \\n), but the text inside will be rendered as markdown in the UI.
@@ -1448,7 +1473,7 @@ The "summary" field must contain only the extracted value with inline citations 
         raw = await completeText({
             model,
             systemPrompt: EXTRACTION_SYSTEM,
-            user: `Document: ${filename}\n\n${documentText.slice(0, 120_000)}\n\n---\nInstruction: ${fullPrompt}`,
+            user: `Document: ${filename}\n\n${documentText.slice(0, 120_000)}${legalContextBlock}\n\n---\nInstruction: ${fullPrompt}`,
             maxTokens: 2048,
             apiKeys,
         });
@@ -1586,6 +1611,7 @@ async function queryTabularAllColumns(
     columns: Column[],
     onResult: (columnIndex: number, result: CellResult) => Promise<void>,
     apiKeys?: import("../lib/llm").UserApiKeys,
+    legalContext?: string,
 ): Promise<void> {
     const columnsDesc = columns
         .map((col) => {
@@ -1595,7 +1621,11 @@ async function queryTabularAllColumns(
         })
         .join("\n");
 
-    const SYSTEM = `You are a legal document analyst. Extract information for each column listed below.
+    const legalContextBlock = legalContext
+        ? `\n\n${legalContext}\n\nWhen assigning flags, consider whether the document's content aligns with the Tanzanian legal standards above. Flag red/yellow for non-compliant or ambiguous provisions, green for compliant ones.`
+        : "";
+
+    const SYSTEM = `You are a legal document analyst specialising in Tanzanian law. Extract information for each column listed below.
 
 For each column, output exactly one minified JSON object on its own line (no line breaks inside the JSON), then a newline. Process columns in order and output each result as soon as you finish it.
 
@@ -1604,12 +1634,12 @@ Line format:
 
 Rules:
 - "summary": the extracted value with inline citations [[page:N||quote:verbatim excerpt ≤25 words]] after every factual claim. No explanation or reasoning here. Quotes must be narrowly scoped to the specific claim — extract only the exact supporting words, not the full surrounding sentence. Do not reuse one long quote across multiple statements; give each claim its own short, precise quote.
-- "flag": green = standard/favorable, yellow = needs attention, red = problematic/unfavorable, grey = neutral/not found
-- "reasoning": brief explanation of the extraction
+- "flag": green = standard/compliant, yellow = needs attention or unclear, red = problematic/non-compliant, grey = neutral/not found. Use Tanzanian legal standards when provided.
+- "reasoning": brief explanation of the extraction and, where relevant law was provided, whether the provision complies with it
 - The "summary" and "reasoning" string VALUES may use markdown (bullets, bold, italics, etc.) — escape newlines as \\n inside the JSON string. This markdown is rendered in the UI.
 - Output ONLY the JSON lines themselves. Do NOT wrap the response in markdown code fences (e.g. \`\`\`json), and do not add any preamble or summary.`;
 
-    const USER = `Document: ${filename}\n\n${documentText.slice(0, 120_000)}\n\n---\nColumns to extract:\n${columnsDesc}`;
+    const USER = `Document: ${filename}\n\n${documentText.slice(0, 120_000)}${legalContextBlock}\n\n---\nColumns to extract:\n${columnsDesc}`;
 
     let contentBuffer = "";
     const pending: Promise<unknown>[] = [];
